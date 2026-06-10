@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from database import get_db
 from models.student import Student
@@ -8,101 +7,68 @@ from schemas.student import (
     StudentCreate,
     StudentUpdate,
     StudentPatch,
-    StudentResponse,
+    StudentResponse
 )
-from helpers import get_student_or_404
+
+from exceptions import (
+    NotFoundException,
+    DuplicateException,
+    BadRequestException
+)
 
 router = APIRouter(
     prefix="/students",
     tags=["Students"]
 )
 
-@router.post(
-    "",
-    response_model=StudentResponse,
-    status_code=201
-)
+@router.get("/{student_id}", response_model=StudentResponse)
+def get_student(student_id: int, db: Session = Depends(get_db)):
+    student = db.query(Student).filter(
+        Student.id == student_id
+    ).first()
+
+    if not student:
+        raise NotFoundException(
+            f"Student with id {student_id} not found"
+        )
+
+    return student
+
+@router.post("/", response_model=StudentResponse)
 def create_student(
-    student: StudentCreate,
+    student_data: StudentCreate,
     db: Session = Depends(get_db)
 ):
-    existing = (
-        db.query(Student)
-        .filter(Student.email == student.email)
-        .first()
-    )
+    existing_student = db.query(Student).filter(
+        Student.email == student_data.email
+    ).first()
 
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Email already exists"
+    if existing_student:
+        raise DuplicateException(
+            "A student with that email already exists"
         )
 
-    new_student = Student(**student.model_dump())
+    student = Student(**student_data.model_dump())
 
-    db.add(new_student)
+    db.add(student)
     db.commit()
-    db.refresh(new_student)
+    db.refresh(student)
 
-    return new_student
+    return student
 
-@router.get(
-    "",
-    response_model=list[StudentResponse]
-)
-def get_students(
-    grade_level: Optional[int] = None,
-    is_enrolled: Optional[bool] = None,
-    db: Session = Depends(get_db)
-):
-    query = db.query(Student)
-
-    if grade_level is not None:
-        query = query.filter(
-            Student.grade_level == grade_level
-        )
-
-    if is_enrolled is not None:
-        query = query.filter(
-            Student.is_enrolled == is_enrolled
-        )
-
-    return query.all()
-
-@router.get(
-    "/{student_id}",
-    response_model=StudentResponse
-)
-def get_student(
-    student_id: int,
-    db: Session = Depends(get_db)
-):
-    return get_student_or_404(student_id, db)
-
-@router.put(
-    "/{student_id}",
-    response_model=StudentResponse
-)
+@router.put("/{student_id}", response_model=StudentResponse)
 def update_student(
     student_id: int,
     student_data: StudentUpdate,
     db: Session = Depends(get_db)
 ):
-    student = get_student_or_404(student_id, db)
+    student = db.query(Student).filter(
+        Student.id == student_id
+    ).first()
 
-    duplicate = (
-        db.query(Student)
-        .filter(
-            Student.email == student_data.email,
-            Student.id != student_id
-        )
-        .first()
-    )
-
-    if duplicate:
-        raise HTTPException(
-            status_code=409,
-            detail="Email already exists"
+    if not student:
+        raise NotFoundException(
+            f"Student with id {student_id} not found"
         )
 
     for key, value in student_data.model_dump().items():
@@ -113,38 +79,24 @@ def update_student(
 
     return student
 
-@router.patch(
-    "/{student_id}",
-    response_model=StudentResponse
-)
+@router.patch("/{student_id}", response_model=StudentResponse)
 def patch_student(
     student_id: int,
     student_data: StudentPatch,
     db: Session = Depends(get_db)
 ):
-    student = get_student_or_404(student_id, db)
+    student = db.query(Student).filter(
+        Student.id == student_id
+    ).first()
 
-    update_data = student_data.model_dump(
-        exclude_unset=True
-    )
-
-    if "email" in update_data:
-        duplicate = (
-            db.query(Student)
-            .filter(
-                Student.email == update_data["email"],
-                Student.id != student_id
-            )
-            .first()
+    if not student:
+        raise NotFoundException(
+            f"Student with id {student_id} not found"
         )
 
-        if duplicate:
-            raise HTTPException(
-                status_code=409,
-                detail="Email already exists"
-            )
+    updates = student_data.model_dump(exclude_unset=True)
 
-    for key, value in update_data.items():
+    for key, value in updates.items():
         setattr(student, key, value)
 
     db.commit()
@@ -152,18 +104,29 @@ def patch_student(
 
     return student
 
-@router.delete(
-    "/{student_id}",
-    status_code=204
-)
+@router.delete("/{student_id}")
 def delete_student(
     student_id: int,
     db: Session = Depends(get_db)
 ):
-    student = get_student_or_404(student_id, db)
+    student = db.query(Student).filter(
+        Student.id == student_id
+    ).first()
+
+    if not student:
+        raise NotFoundException(
+            f"Student with id {student_id} not found"
+        )
+
+    if student.is_enrolled:
+        raise BadRequestException(
+            "Cannot delete a student who is currently enrolled"
+        )
 
     db.delete(student)
     db.commit()
 
-    return Response(status_code=204)
+    return {
+        "message": "Student deleted successfully"
+    }
 

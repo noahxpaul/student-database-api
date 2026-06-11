@@ -1,58 +1,18 @@
-# main.py
+from fastapi import FastAPI
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from recipe_api.config import APP_NAME, APP_VERSION
+from recipe_api.routers.recipes import router as recipes_router
+from recipe_api.routers.ingredients import router as ingredients_router
 
-from exceptions import (
-    NotFoundException,
-    DuplicateException,
-    BadRequestException
+app = FastAPI(
+    title=APP_NAME,
+    version=APP_VERSION
 )
 
-from routers.students import router as student_router
+app.include_router(recipes_router)
+app.include_router(ingredients_router)
 
-app = FastAPI()
 
-# 404 Handler
-@app.exception_handler(NotFoundException)
-async def not_found_exception_handler(
-    request: Request,
-    exc: NotFoundException
-):
-    return JSONResponse(
-        status_code=404,
-        content={
-            "error": "Not Found",
-            "message": exc.detail
-        }
-    )
-
-# 409 Handler
-@app.exception_handler(DuplicateException)
-async def duplicate_exception_handler(
-    request: Request,
-    exc: DuplicateException
-):
-    return JSONResponse(
-        status_code=409,
-        content={
-            "error": "Duplicate Resource",
-            "message": exc.detail
-        }
-    )
-
-# 400 Handler
-@app.exception_handler(BadRequestException)
-async def bad_request_exception_handler(
-    request: Request,
-    exc: BadRequestException
-):
-    return JSONResponse(
-        status_code=400,
-        content={
-            "error": "Bad Request",
-            "message": exc.detail
-        }
-    )
-
-app.include_router(student_router)
+@app.get("/")
+def root():
+    return {"message": "Recipe Manager API is running"}
